@@ -1,0 +1,257 @@
+// =============================================================================
+// Prisma Schema – Healthcare Appointment Platform
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  PATIENT
+  DOCTOR
+  ADMIN
+}
+
+enum AppointmentStatus {
+  PENDING      // slot held, not yet confirmed
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  RESCHEDULED
+}
+
+enum UrgencyLevel {
+  LOW
+  MEDIUM
+  HIGH
+  UNKNOWN
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
+// ---------------------------------------------------------------------------
+// Users
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  name          String
+  phone         String?
+  role          Role     @default(PATIENT)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  doctor          Doctor?
+  appointments    Appointment[]
+  emailJobs       EmailJob[]
+
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Doctors
+// ---------------------------------------------------------------------------
+
+model Doctor {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  specialisation   String
+  workStartTime    String   // "09:00" (HH:MM, 24h)
+  workEndTime      String   // "17:00"
+  slotDurationMins Int      @default(15)
+  bio              String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+  leaveDays    LeaveDay[]
+  slotHolds    SlotHold[]
+
+  @@map("doctors")
+}
+
+// ---------------------------------------------------------------------------
+// Leave Days
+// ---------------------------------------------------------------------------
+
+model LeaveDay {
+  id        String   @id @default(uuid())
+  doctorId  String
+  date      DateTime @db.Date
+  reason    String?
+  createdAt DateTime @default(now())
+
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, date])
+  @@map("leave_days")
+}
+
+// ---------------------------------------------------------------------------
+// Appointments
+// ---------------------------------------------------------------------------
+
+model Appointment {
+  id            String            @id @default(uuid())
+  patientId     String
+  doctorId      String
+  startTime     DateTime
+  endTime       DateTime
+  status        AppointmentStatus @default(PENDING)
+  reminderSent  Boolean           @default(false)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  // Relations
+  patient        User             @relation(fields: [patientId], references: [id])
+  doctor         Doctor           @relation(fields: [doctorId], references: [id])
+  symptomForm    SymptomForm?
+  preVisitSummary  Summary?       @relation("PreVisitSummary")
+  postVisitSummary Summary?       @relation("PostVisitSummary")
+  prescription   Prescription?
+  calendarEvent  CalendarEvent?
+
+  @@index([doctorId, startTime])
+  @@index([patientId])
+  @@map("appointments")
+}
+
+// ---------------------------------------------------------------------------
+// Symptom Forms
+// ---------------------------------------------------------------------------
+
+model SymptomForm {
+  id            String   @id @default(uuid())
+  appointmentId String   @unique
+  symptoms      String   // free text
+  duration      String?  // e.g., "3 days"
+  severity      Int?     // 1-10 self-rating
+  additionalNotes String?
+  createdAt     DateTime @default(now())
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@map("symptom_forms")
+}
+
+// ---------------------------------------------------------------------------
+// Summaries (pre-visit and post-visit, both LLM-generated)
+// ---------------------------------------------------------------------------
+
+model Summary {
+  id              String       @id @default(uuid())
+  appointmentPreId  String?   @unique  // FK to appointment (pre-visit)
+  appointmentPostId String?   @unique  // FK to appointment (post-visit)
+  type            SummaryType
+  urgencyLevel    UrgencyLevel @default(UNKNOWN)
+  chiefComplaint  String?
+  suggestedQuestions String[]
+  content         String       // full LLM output
+  status          String       @default("pending") // pending | done | unavailable
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  appointmentPre  Appointment? @relation("PreVisitSummary",  fields: [appointmentPreId],  references: [id])
+  appointmentPost Appointment? @relation("PostVisitSummary", fields: [appointmentPostId], references: [id])
+
+  @@map("summaries")
+}
+
+enum SummaryType {
+  PRE_VISIT
+  POST_VISIT
+}
+
+// ---------------------------------------------------------------------------
+// Prescriptions
+// ---------------------------------------------------------------------------
+
+model Prescription {
+  id            String   @id @default(uuid())
+  appointmentId String   @unique
+  doctorNotes   String   // raw clinical notes
+  medications   Json     // [{ name, dosage, frequency, duration }]
+  followUpSteps String?
+  createdAt     DateTime @default(now())
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@map("prescriptions")
+}
+
+// ---------------------------------------------------------------------------
+// Slot Holds (temporary locks during booking flow)
+// ---------------------------------------------------------------------------
+
+model SlotHold {
+  id        String   @id @default(uuid())
+  doctorId  String
+  startTime DateTime
+  endTime   DateTime
+  patientId String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId, startTime])
+  @@map("slot_holds")
+}
+
+// ---------------------------------------------------------------------------
+// Email Jobs (queue persistence for retries)
+// ---------------------------------------------------------------------------
+
+model EmailJob {
+  id          String    @id @default(uuid())
+  userId      String?
+  toEmail     String
+  subject     String
+  bodyHtml    String
+  status      JobStatus @default(PENDING)
+  attempts    Int       @default(0)
+  lastError   String?
+  scheduledAt DateTime  @default(now())
+  sentAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@map("email_jobs")
+}
+
+// ---------------------------------------------------------------------------
+// Google Calendar Events
+// ---------------------------------------------------------------------------
+
+model CalendarEvent {
+  id               String   @id @default(uuid())
+  appointmentId    String   @unique
+  patientEventId   String?  // Google Calendar event ID for patient
+  doctorEventId    String?  // Google Calendar event ID for doctor
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@map("calendar_events")
+}
