@@ -16,7 +16,7 @@ A full-stack clinic management platform with AI-powered pre-visit and post-visit
 | Job Queue | Bull + Redis 7 |
 | Scheduling | node-cron |
 | Email | Nodemailer (SMTP) |
-| LLM | OpenAI GPT-4o |
+| LLM | Google Gemini API (Gemini-2.0-flash) |
 | Calendar | Google Calendar API v3 |
 | Logging | Winston |
 
@@ -27,7 +27,7 @@ A full-stack clinic management platform with AI-powered pre-visit and post-visit
 ### Prerequisites
 
 - Node.js 18+, PostgreSQL 15+, Redis 6+
-- OpenAI API key
+- Google Gemini API key
 - Gmail/SMTP credentials
 
 ### 1. Clone and install
@@ -82,14 +82,14 @@ docker-compose up -d --build
 
 ### Backend (Web Service)
 1. New Web Service → connect repo → root: `backend/`
-2. Build: `npm install && npx prisma generate && npx prisma migrate deploy`
+2. Build: `npm install && npx prisma generate && npx prisma migrate deploy && node prisma/seed.js`
 3. Start: `npm start`
-4. Add env vars, PostgreSQL DB, Redis (Upstash free tier)
+4. Add env vars: `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `SMTP_...`, `GEMINI_API_KEY`, `FRONTEND_URL` (set to your frontend Render URL to avoid CORS errors).
 
 ### Frontend (Static Site)
 1. New Static Site → root: `frontend/`
 2. Build: `npm install && npm run build` → Publish: `dist`
-3. Set `VITE_API_URL` to backend URL
+3. Add environment variable: `VITE_API_URL` (set to your backend Render URL, e.g., `https://backend-app.onrender.com/api`).
 
 ---
 
@@ -107,8 +107,7 @@ SMTP_PORT=587
 SMTP_USER=your@gmail.com
 SMTP_PASS=your_16_char_app_password
 EMAIL_FROM="ClinicCare <no-reply@clinic.com>"
-OPENAI_API_KEY=sk-proj-...
-OPENAI_MODEL=gpt-4o
+GEMINI_API_KEY=AIzaSy...
 GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=GOCSPX-...
 GOOGLE_REDIRECT_URI=http://localhost:4000/api/auth/google/callback
@@ -298,7 +297,7 @@ Return ONLY valid JSON:
 
 ---
 
-## 🧑‍💻 Demo Credentials
+## 🧑💻 Demo Credentials
 
 | Role | Email | Password |
 |---|---|---|
@@ -310,6 +309,7 @@ Return ONLY valid JSON:
 
 ## 🌐 Hosted Application
 
-**Placeholder**: `https://clinic-platform.onrender.com`
+**Live Frontend**: `https://clinic-platform-1-bw2x.onrender.com`
+**Live Backend API**: `https://clinic-platform-z28c.onrender.com/api`
 
 Deploy following the Render instructions above. Free tier services spin down after 15 minutes of inactivity.
